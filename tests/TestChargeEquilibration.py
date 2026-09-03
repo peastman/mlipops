@@ -22,8 +22,9 @@ def get_nh3_tensors(device):
     return positions, electronegativity, hardness, radius
 
 
-def validate_minimization(coulomb, positions, charges, box_vectors, hardness, electronegativity, radius):
-    e0 = coulomb(positions, charges, box_vectors) + (electronegativity*charges + 0.5*hardness*charges**2).sum()
+def validate_minimization(coulomb, positions, charges, box_vectors, hardness, electronegativity, radius, default_charge=None):
+    dq = charges if default_charge is None else charges-default_charge
+    e0 = coulomb(positions, charges, box_vectors) + (electronegativity*dq + 0.5*hardness*dq**2).sum()
     for _ in range(10):
         # Add a random offset to the charges and confirm that the energy increases.  This isn't strictly guaranteed,
         # since the minimization is based on Gaussian charges instead of point charges, so include a small margin.
@@ -31,7 +32,8 @@ def validate_minimization(coulomb, positions, charges, box_vectors, hardness, el
         delta = 0.1*torch.randn_like(charges)
         delta -= torch.mean(delta)
         c2 = charges+delta
-        e2 = coulomb(positions, c2, box_vectors) + (electronegativity*c2 + 0.5*(hardness+(math.sqrt(2/torch.pi)/radius))*c2**2).sum()
+        dq = c2 if default_charge is None else c2-default_charge
+        e2 = coulomb(positions, c2, box_vectors) + (electronegativity*dq + 0.5*(hardness+(math.sqrt(2/torch.pi)/radius))*dq**2).sum()
         assert e2 > e0-0.05
 
 
@@ -202,6 +204,25 @@ def test_qeq_external_potential(device):
     potential = -(positions*field).sum(axis=1)
     charges = eq(positions, electronegativity, hardness, radius, 0, potential=potential)
     assert torch.all(charges[[0,2,3,4]] > charges[[1,5,6,7]])
+
+
+@pytest.mark.parametrize('device', ['cpu', 'cuda'])
+def test_qeq_default_charges(device):
+    """Test the QEq algorithm with default charges."""
+    if not torch.cuda.is_available() and device == 'cuda':
+        pytest.skip('No GPU')
+    positions, electronegativity, hardness, radius = get_nh3_tensors(device)
+    coulomb = CoulombNC(None, 1.0, device=device)
+    eq = ChargeEquilibration(coulomb)
+    default_charge = torch.tensor([-1.0]+[0.0]*7, dtype=torch.float32, device=device)
+    charges = eq(positions, electronegativity, hardness, radius, 0, default_charge=default_charge)
+    assert torch.allclose(charges.sum(), torch.tensor(0.0), atol=1e-4)
+    assert charges[0] < charges[1]
+    validate_minimization(coulomb, positions, charges, None, hardness, electronegativity, radius, default_charge)
+    charges = eq(positions, electronegativity, hardness, radius, -1, default_charge=default_charge)
+    assert torch.allclose(charges.sum(), torch.tensor(-1.0), atol=1e-4)
+    assert charges[0] < charges[1]
+    validate_minimization(coulomb, positions, charges, None, hardness, electronegativity, radius, default_charge)
 
 
 @pytest.mark.parametrize('device', ['cpu', 'cuda'])

@@ -28,6 +28,10 @@ class ChargeEquilibration(torch.nn.Module):
     be computed from a uniform external field, or by calling compute_potential() on a Coulomb calculation object to get
     the potential resulting from a set of external charges.
 
+    You can optionally specify a default charge for each atom.  The energy function is then modified as described in
+    https://doi.org/10.1021/jz3008485 to bias each atom towards its default charge.  In some cases, using nonzero
+    default charges (for example, the formal oxidation state of each atom) can lead to more accurate results.
+
     This class offers a choice of method for solving the system of equations.  By default it uses torch.linalg.solve(),
     which implements a direct algorithm.  It is accurate and generally robust, but it can be slow, especially for large
     systems.  Alternatively you can choose MINRES, an efficient iterative algorithm.  It can be much faster in some
@@ -49,7 +53,8 @@ class ChargeEquilibration(torch.nn.Module):
     def forward(self, positions: torch.Tensor, electronegativity: torch.Tensor, hardness: torch.Tensor,
                 radius: torch.Tensor, total_charge: float | torch.Tensor | None = None, molecules: list | None = None,
                 box_vectors: torch.Tensor | None = None, potential: torch.Tensor | None = None,
-                batch: torch.Tensor | None = None, solver: str = 'direct') -> torch.Tensor:
+                default_charge: torch.Tensor | None = None, batch: torch.Tensor | None = None,
+                solver: str = 'direct') -> torch.Tensor:
         """Perform charge equilibration to compute atomic partial charges.
 
         Parameters
@@ -76,6 +81,9 @@ class ChargeEquilibration(torch.nn.Module):
             boundary conditions are not used.
         potential: torch.Tensor
             a Tensor of shape (n_particles,) containing the external electric potential at the location of each particle
+        default_charge: torch.Tensor | None
+            a Tensor of shape (n_particles,) containing the default charge of every particle.  If None, all default
+            charges are 0.
         solver: str
             the method to use for solving the system of equations.  Options are 'direct' (use torch.linalg.solve() to
             directly compute the result) and 'minres' (an iterative solver that tends to be faster, especially for large
@@ -141,6 +149,8 @@ class ChargeEquilibration(torch.nn.Module):
         rhs = electronegativity
         if potential is not None:
             rhs = rhs+potential
+        if default_charge is not None:
+            rhs = rhs-interaction.diag()*default_charge
         x = torch.cat([-rhs, mol_charges])
 
         # Solve the system of equations.

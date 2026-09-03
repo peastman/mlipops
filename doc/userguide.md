@@ -303,6 +303,19 @@ potential = coulomb.compute_potential(ml_positions, mm_positions, mm_charges)
 ml_charges = eq(ml_positions, electronegativity, hardness, radius, total_charge=0, potential=potential)
 ```
 
+Another option is to specify a default charge $q^0_i$ for every atom.
+
+```python
+charges = eq(positions, electronegativity, hardness, radius, total_charge=0, default_charge=default_charge)
+```
+
+In that case, the energy function is modified to
+
+$E = E_{coul}(r, q, \alpha) + \sum_{i} \left[ \chi_i (q_i - q^0_i) + \frac{1}{2} \left( J_{ii} + \frac{\sqrt{2}}{\sqrt{\pi} \alpha_i} \right) (q_i - q^0_i)^2 \right]$
+
+In some cases, using nonzero default charges (for example, the formal oxidation state of each atom) can lead to more
+accurate results.
+
 ### Dispersion
 
 Dispersion energy can be computed using the DFT-D3(BJ) model.  Using it is similar to the Coulomb examples shown above,
